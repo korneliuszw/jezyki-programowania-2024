@@ -62,6 +62,8 @@ procedure Simulator is
       entry Cleaning_Day;
       -- Print hit/miss stats of Take and Deliver to a file
       entry Print_Stats;
+      -- Check if we can safely accept more products
+      entry Check_Buffer_Threshold(Product: in Pracownicy; Can_Accept: out Boolean);
    end Buffer;
 
    P : array (1 .. Liczba_Pracownikow) of Pracownik;
@@ -95,13 +97,27 @@ procedure Simulator is
         (ESC & "[93m" & "P: Started producer of " &
          To_String(Nazwy_Skladnikow (Producer_Type_Number)) & ESC & "[0m");
       loop
-         Random_Time := Duration (Random_Production.Random (G) * Delay_Factor);
-         delay Random_Time;
+         --  introducing local scope
+         declare
+            Can_Safely_Accept: Boolean;
+         begin
+            B.Check_Buffer_Threshold(Producer_Type_Number, Can_Safely_Accept);
+            Random_Time := Duration(Random_Production.Random(G));
+            if not Can_Safely_Accept then
+               --  delay production
+               Random_Time := Random_Time * 3;
+               --  Put_Line(ESC & "[93m" & "P: Demand for " & Nazwy_Skladnikow(Producer_Type_Number) & " is low delaying production" & ESC & "[0m");
+               Put_Line(ESC & "[93m" & "P: Demand for " & To_String(Nazwy_Skladnikow(Producer_Type_Number)) & " is low delaying production" & ESC & "[0m");
+            end if;
+         end;
+         --  end of local scope
+         delay Random_Time * Delay_Factor;
          Put_Line
            (ESC & "[93m" & "P: Produced product " &
             To_String(Nazwy_Skladnikow (Producer_Type_Number)) & " number " &
             Integer'Image (Product_Number) & ESC & "[0m");
-        loop
+         -- Accept for storage
+         loop
             select
                B.Take(Producer_Type_Number, Product_Number);
                Product_Number := Product_Number + 1;
@@ -192,7 +208,10 @@ procedure Simulator is
    --Buffer--
 
    task body Buffer is
-      Storage_Capacity : constant Integer := 30;
+      --  number 8 is temporary, should be calculated based on products needs
+      Storage_Capacity : constant Integer := 8*Liczba_Pracownikow;
+      Safe_Trereshold: array(Pracownicy) of Integer
+        := (8, 8, 8, 8, 8);
       type Stat is (Hit, Miss);
       type Storage_type is array (Pracownicy) of Integer;
       Storage              : Storage_type := (0, 0, 0, 0, 0);
@@ -285,6 +304,14 @@ procedure Simulator is
        return In_Storage < Storage_Capacity;
       end Can_Accept;
 
+      function Can_Safely_Accept(Product: Pracownicy) return Boolean is
+      begin
+         if Storage(Product) < Safe_Trereshold(Product) then
+            return True;
+         else
+            return False;
+         end if;
+      end Can_Safely_Accept;
 
       function Can_Deliver (Assembly : Zestawy) return Boolean is
       begin
@@ -376,6 +403,10 @@ procedure Simulator is
                 Put_Line (Stat_File, "Ratio: " & Stat_Counter'Image(Assembly_Stats(Hit) / (Assembly_Stats(Hit) + Assembly_Stats(Miss))));
                 Close(Stat_File);
             end Print_Stats;
+         or
+            accept Check_Buffer_Threshold(Product: in Pracownicy; Can_Accept: out Boolean) do
+               Can_Accept := Can_Safely_Accept(Product);
+            end Check_Buffer_Threshold;
         end select;
       end loop;
    end Buffer;
