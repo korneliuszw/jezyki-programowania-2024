@@ -12,6 +12,8 @@ procedure Hello_World is
    Number_Of_Producers  : constant Integer := 5;
    Number_Of_Assemblies : constant Integer := 3;
    Number_Of_Consumers  : constant Integer := 2;
+
+   -- Reduce the factor for faster simulation, increase for slower
    Delay_Factor: constant Duration := 0.2;
 
    subtype Producer_Type is Integer range 1 .. Number_Of_Producers;
@@ -49,7 +51,9 @@ procedure Hello_World is
       entry Take (Product : in Producer_Type; Number : in Integer);
       -- Deliver an assembly (provided there are enough products for it)
       entry Deliver (Assembly : in Assembly_Type; Number : out Integer);
+      -- Remove some products from storage
       entry Cleaning_Day;
+      -- Print hit/miss stats of Take and Deliver to a file
       entry Print_Stats;
    end Buffer;
 
@@ -90,9 +94,6 @@ procedure Hello_World is
            (ESC & "[93m" & "P: Produced product " &
             Product_Name (Producer_Type_Number) & " number " &
             Integer'Image (Product_Number) & ESC & "[0m");
-         -- Accept for storage
-            --     B.Take(Producer_Type_Number, Product_Number);
-            --     Product_Number := Product_Number + 1;
         loop
             select
                B.Take(Producer_Type_Number, Product_Number);
@@ -144,6 +145,7 @@ procedure Hello_World is
          Assembly_Type := Random_Assembly.Random (GA);
          -- take an assembly for consumption
          B.Deliver (Assembly_Type, Assembly_Number);
+         -- if the assembly is not available, print a message
          if Assembly_Number = 0 then
              Put_Line(ESC & "[96m" & "C: " & Consumer_Name(Consumer_Nb) & " lacks assembly of type " & Assembly_Name(Assembly_Type) & ESC & "[0m");
          else
@@ -160,13 +162,16 @@ procedure Hello_World is
         Day_Number: Integer := 1;
         Day_Duration: constant Duration := 2.0 * Delay_Factor;
     begin
+        -- set on which day the cleaning will be
         accept Start(Cleaning_Day_When: in Integer) do
             Cleaning_Day := Cleaning_Day_When;
         end Start;
         loop
+            -- wait for day to end
             delay Day_Duration;
             Put_Line (ESC & "[92m" & "Day " & Integer'Image(Day_Number) & ESC & "[0m");
             if Day_Number = Cleaning_Day then
+                -- Time to clean
                 Put_Line (ESC & "[92m" & "Cleaning day" & ESC & "[0m");
                 Day_Number := 1;
                 B.Cleaning_Day;
@@ -190,23 +195,26 @@ procedure Hello_World is
       Max_Assembly_Content : array (Producer_Type) of Integer;
       Assembly_Number      : array (Assembly_Type) of Integer := (1, 1, 1);
       In_Storage           : Integer := 0;
+
+      -- Stats store counters for hits (successful Take/Deliver) and misses (rejected Take/Deliver)
       type Stat_Counter is delta 0.01 digits 20;
+      -- Stats for Take
       Product_Stats : array(Stat) of Stat_Counter := (0.0, 0.0);
+      -- Stats for Deliver
       Assembly_Stats: array(Stat) of Stat_Counter := (0.0, 0.0);
       Stat_File: Ada.Text_IO.File_Type;
       
+      -- Priority is calculated as the difference between the maximum assembly content and the current storage
+      -- We care less about products that can be already assembled
       Priority: array(Producer_Type) of Integer := (3, 3, 3, 3, 3);
-      Highest_Priority: Integer;
       Lowest_Priority_Producer: Producer_Type;
 
+     -- Recalculate priority for all producers, find the one with the lowest priority
       procedure RecalculatePriority is
         Lowest_Priority: Integer := 999999;
       begin
         for P in Producer_Type loop
             Priority(P) := Max_Assembly_Content(P) - Storage(P);
-            if Highest_Priority < Priority(P) then
-                Highest_Priority := Priority(P);
-            end if;
             if Priority(P) < Lowest_Priority then
                 Lowest_Priority := Priority(P);
                 Lowest_Priority_Producer := P;
@@ -237,30 +245,38 @@ procedure Hello_World is
             end if;
         end loop;
       end;
-      function Can_Handle(P: Producer_Type) return Boolean is
-        -- Ignore priorites before a certain treshold
-        Storage_Safe_Treshold: constant Integer := Storage_Capacity - 7;
+
+      function Find_Max_In_Storage return Producer_Type is
       begin
-        if In_Storage < Storage_Safe_Treshold then
-            return True;
-        elsif Priority(P) > 0 then
-            return True;
-        elsif Highest_Priority > 0 or P = Lowest_Priority_Producer then
-            return False;
+        return Lowest_Priority_Producer;
+      end Find_Max_In_Storage;
+      
+      procedure RemoveItem(Producer: Producer_Type) is
+      begin
+        if Storage(Producer) = 0 then
+            return;
         end if;
-        return True;
+        Storage(Producer) := Storage(Producer) - 1;
+        In_Storage := In_Storage - 1;
+      end;
+
+      -- Check if we should cleanup redundant the storage
+      function ShouldCleanup return Boolean is
+        begin
+            return In_Storage >= Storage_Capacity;
+        end;
+
+      -- Remove the product with the lowest priority
+      function CleanupRedundantStorage(Producer: Producer_Type) return Producer_Type is
+      begin
+        RemoveItem(Find_Max_In_Storage);
+        RecalculatePriority;
+        return Find_Max_In_Storage;
       end;
 
       function Can_Accept (Product : Producer_Type) return Boolean is
       begin
-        if not Can_Handle(Product) then
-        --  if false then
-            return False;
-        elsif In_Storage >= Storage_Capacity then
-            return False;
-        else
-            return True;
-        end if;
+       return In_Storage < Storage_Capacity;
       end Can_Accept;
 
 
@@ -284,40 +300,7 @@ procedure Hello_World is
          Put_Line
            ("|   Number of products in storage: " &
             Integer'Image (In_Storage));
-
       end Storage_Contents;
-
-      function Find_Max_In_Storage return Producer_Type is
-      Max_Value: Integer := Storage(1);
-      Max_Producer: Producer_Type := 1;
-      begin
-         for W in Producer_Type loop
-            if Storage(W) > Max_Value then
-               Max_Value := Storage(W);
-               Max_Producer := W;
-            end if;
-         end loop;
-         return Max_Producer;
-      end Find_Max_In_Storage;
-      
-      procedure RemoveItem(Producer: Producer_Type) is
-      begin
-        if Storage(Producer) = 0 then
-            return;
-        end if;
-        Storage(Producer) := Storage(Producer) - 1;
-        In_Storage := In_Storage - 1;
-      end;
-
-      procedure CleanupRedundantStorage(Producer: Producer_Type) is
-      begin
-        if In_Storage < Storage_Capacity then
-            return;
-        end if;
-        RemoveItem(Find_Max_In_Storage);
-        RemoveItem(Lowest_Priority_Producer);
-        RecalculatePriority;
-      end;
 
    begin
       Create (Stat_File, Ada.Text_IO.Out_File, "stats.txt");
@@ -327,8 +310,8 @@ procedure Hello_World is
       loop
       select
          accept Take (Product : in Producer_Type; Number : in Integer) do
-            CleanupRedundantStorage(Product);
-            if Can_Accept (Product) then
+            -- check if there is a room for the product, if there is no room, remove redundant product, don't go inside if we just removed the current product to avoid filling it up again
+            if not (ShouldCleanup and then CleanupRedundantStorage(Product) = Product) and Can_Accept (Product) then
                Put_Line
                  (ESC & "[91m" & "B: Accepted product " &
                   Product_Name (Product) & " number " &
@@ -359,7 +342,7 @@ procedure Hello_World is
                end loop;
                Number                     := Assembly_Number (Assembly);
                Assembly_Number (Assembly) := Assembly_Number (Assembly) + 1;
-                Assembly_Stats(Hit) := Assembly_Stats(Hit) + 1.0;
+               Assembly_Stats(Hit) := Assembly_Stats(Hit) + 1.0;
             else
                Put_Line
                  (ESC & "[91m" & "B: Lacking products for assembly " &
