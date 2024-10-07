@@ -194,24 +194,20 @@ procedure Hello_World is
       Product_Stats : array(Stat) of Stat_Counter := (0.0, 0.0);
       Assembly_Stats: array(Stat) of Stat_Counter := (0.0, 0.0);
       Stat_File: Ada.Text_IO.File_Type;
-      type PriorityValue is range 0..Number_Of_Assemblies;
-      Priority: array(Producer_Type) of PriorityValue := (3, 3, 3, 3, 3);
-      Lowest_Priority: PriorityValue;
+      
+      Priority: array(Producer_Type) of Integer := (3, 3, 3, 3, 3);
+      Highest_Priority: Integer;
       Lowest_Priority_Producer: Producer_Type;
 
       procedure RecalculatePriority is
-        count_of_assemblies: Integer;
+        Lowest_Priority: Integer := 999999;
       begin
-        Lowest_Priority := PriorityValue(Number_Of_Assemblies);
         for P in Producer_Type loop
-            count_of_assemblies := 0;
-            for A in Assembly_Type loop
-                if Storage(P) >= Assembly_Content(A, P) then
-                    count_of_assemblies := count_of_assemblies + 1;
-                end if;
-            end loop;
-            Priority(P) := PriorityValue(Number_Of_Assemblies - count_of_assemblies);
-            if Lowest_Priority > Priority(P) then
+            Priority(P) := Max_Assembly_Content(P) - Storage(P);
+            if Highest_Priority < Priority(P) then
+                Highest_Priority := Priority(P);
+            end if;
+            if Priority(P) < Lowest_Priority then
                 Lowest_Priority := Priority(P);
                 Lowest_Priority_Producer := P;
             end if;
@@ -243,16 +239,16 @@ procedure Hello_World is
       end;
       function Can_Handle(P: Producer_Type) return Boolean is
         -- Ignore priorites before a certain treshold
-        Storage_Safe_Treshold: constant Integer := Storage_Capacity - 2;
+        Storage_Safe_Treshold: constant Integer := Storage_Capacity - 7;
       begin
         if In_Storage < Storage_Safe_Treshold then
             return True;
-        elsif Priority(P) = Lowest_Priority then
+        elsif Priority(P) > 0 then
+            return True;
+        elsif Highest_Priority > 0 or P = Lowest_Priority_Producer then
             return False;
-        else
-         return True;
         end if;
-
+        return True;
       end;
 
       function Can_Accept (Product : Producer_Type) return Boolean is
