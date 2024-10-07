@@ -12,6 +12,7 @@ procedure Hello_World is
    Number_Of_Producers  : constant Integer := 5;
    Number_Of_Assemblies : constant Integer := 3;
    Number_Of_Consumers  : constant Integer := 2;
+   Delay_Factor: constant Duration := 0.2;
 
    subtype Producer_Type is Integer range 1 .. Number_Of_Producers;
    subtype Assembly_Type is Integer range 1 .. Number_Of_Assemblies;
@@ -83,13 +84,15 @@ procedure Hello_World is
         (ESC & "[93m" & "P: Started producer of " &
          Product_Name (Producer_Type_Number) & ESC & "[0m");
       loop
-         Random_Time := Duration (Random_Production.Random (G));
+         Random_Time := Duration (Random_Production.Random (G) * Delay_Factor);
          delay Random_Time;
          Put_Line
            (ESC & "[93m" & "P: Produced product " &
             Product_Name (Producer_Type_Number) & " number " &
             Integer'Image (Product_Number) & ESC & "[0m");
          -- Accept for storage
+            --     B.Take(Producer_Type_Number, Product_Number);
+            --     Product_Number := Product_Number + 1;
         loop
             select
                B.Take(Producer_Type_Number, Product_Number);
@@ -97,7 +100,7 @@ procedure Hello_World is
                exit;
             else
                Put_Line("Other product is being loaded to buffer. PLZ WAIT");
-               delay Duration(0.5);
+               delay 0.5 * Delay_Factor;
             end select;
          end loop;
       end loop;
@@ -137,7 +140,7 @@ procedure Hello_World is
          ESC & "[0m");
       loop
          delay Duration
-           (Random_Consumption.Random (G)); --  simulate consumption
+           (Random_Consumption.Random (G) * Delay_Factor); --  simulate consumption
          Assembly_Type := Random_Assembly.Random (GA);
          -- take an assembly for consumption
          B.Deliver (Assembly_Type, Assembly_Number);
@@ -155,7 +158,7 @@ procedure Hello_World is
     task body Cleaning is
         Cleaning_Day: Integer;
         Day_Number: Integer := 1;
-        Day_Duration: constant Duration := 2.0;
+        Day_Duration: constant Duration := 2.0 * Delay_Factor;
     begin
         accept Start(Cleaning_Day_When: in Integer) do
             Cleaning_Day := Cleaning_Day_When;
@@ -182,6 +185,7 @@ procedure Hello_World is
       type Storage_type is array (Producer_Type) of Integer;
       Storage              : Storage_type := (0, 0, 0, 0, 0);
       Assembly_Content     : array (Assembly_Type, Producer_Type) of Integer :=
+        --  ((2, 1, 2, 1, 2), (1, 2, 0, 1, 1), (0, 2, 2, 1, 1));
         ((2, 1, 2, 0, 2), (1, 2, 0, 1, 0), (3, 2, 2, 0, 1));
       Max_Assembly_Content : array (Producer_Type) of Integer;
       Assembly_Number      : array (Assembly_Type) of Integer := (1, 1, 1);
@@ -239,13 +243,11 @@ procedure Hello_World is
       end;
       function Can_Handle(P: Producer_Type) return Boolean is
         -- Ignore priorites before a certain treshold
-        Storage_Safe_Treshold: constant Integer := Storage_Capacity - 10;
+        Storage_Safe_Treshold: constant Integer := Storage_Capacity - 2;
       begin
         if In_Storage < Storage_Safe_Treshold then
             return True;
-        elsif In_Storage < Storage_Capacity and Priority(P) = 0 then
-            return False;
-        elsif In_Storage = Storage_Capacity and Priority(P) = Lowest_Priority then
+        elsif Priority(P) = Lowest_Priority then
             return False;
         else
          return True;
@@ -256,6 +258,7 @@ procedure Hello_World is
       function Can_Accept (Product : Producer_Type) return Boolean is
       begin
         if not Can_Handle(Product) then
+        --  if false then
             return False;
         elsif In_Storage >= Storage_Capacity then
             return False;
@@ -303,7 +306,11 @@ procedure Hello_World is
       
       procedure RemoveItem(Producer: Producer_Type) is
       begin
-        Storage(Producer) := Integer'max(Storage(Producer) - 1, 0);
+        if Storage(Producer) = 0 then
+            return;
+        end if;
+        Storage(Producer) := Storage(Producer) - 1;
+        In_Storage := In_Storage - 1;
       end;
 
       procedure CleanupRedundantStorage(Producer: Producer_Type) is
