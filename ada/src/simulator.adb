@@ -180,29 +180,28 @@ procedure Simulator is
    end Klient;
 
    -- Cleaning
-    task body Cleaning is
-        Cleaning_Day: Integer;
-        Day_Number: Integer := 1;
-        Day_Duration: constant Duration := 2.0 * Delay_Factor;
-    begin
-        -- set on which day the cleaning will be
-        accept Start(Cleaning_Day_When: in Integer) do
-            Cleaning_Day := Cleaning_Day_When;
-        end Start;
-        loop
+   task body Cleaning is
+       Cleaning_Day: Integer;
+       Day_Number: Integer := 1;
+       Day_Duration: constant Duration := 2.0;
+   begin
+      -- set on which day the cleaning will be
+       accept Start(Cleaning_Day_When: in Integer) do
+           Cleaning_Day := Cleaning_Day_When;
+           Put_Line(ESC & "[92m" & "Cleaning countdown started" & ESC & "[0m");
+       end Start;
+       loop
             -- wait for day to end
-            delay Day_Duration;
-            Put_Line (ESC & "[92m" & "Day " & Integer'Image(Day_Number) & ESC & "[0m");
-            if Day_Number = Cleaning_Day then
-                -- Time to clean
-                Put_Line (ESC & "[92m" & "Cleaning day" & ESC & "[0m");
-                Day_Number := 1;
-                B.Cleaning_Day;
-            else
-                Day_Number := Day_Number + 1;
+            delay Day_Duration * Delay_Factor;
+            Put_Line (ESC & "[92m" & "Day" & Integer'Image(Day_Number) & ESC & "[0m");
+            if Day_Number mod Cleaning_Day = 0 then
+               -- Time to clean
+               Put_Line (ESC & "[92m" & "Cleaning day" & ESC & "[0m");
+               B.Cleaning_Day;
             end if;
-        end loop;
-    end Cleaning;
+            Day_Number := Day_Number + 1;
+       end loop;
+   end Cleaning;
 
 
    --Buffer--
