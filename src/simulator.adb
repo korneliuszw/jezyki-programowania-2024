@@ -7,7 +7,7 @@ with Ada.Numerics.Discrete_Random;
 with Ada.Strings.Unbounded;
 use Ada.Strings.Unbounded;
 
-procedure Hello_World is
+procedure Simulator is
 
    ----GLOBAL VARIABLES---
 
@@ -393,5 +393,5 @@ begin
         delay 10.0;
         B.Print_Stats;
     end loop;
-end Hello_World;
+end Simulator;
 
