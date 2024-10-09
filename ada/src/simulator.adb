@@ -229,7 +229,7 @@ procedure Simulator is
       
       -- Priority is calculated as the difference between the maximum assembly content and the current storage
       -- We care less about products that can be already assembled
-      Priority: array(Pracownicy) of Integer := (3, 3, 3, 3, 3);
+      Priority: array(Pracownicy) of Integer := (others => 3);
       Lowest_Priority_Producer: Pracownicy;
 
      -- Recalculate priority for all producers, find the one with the lowest priority
@@ -257,7 +257,6 @@ procedure Simulator is
                   Max_Assembly_Content (W) := Zawartosc_Zestawow (Z, W);
                end if;
             end loop;
-            Thresholds(W) := Max_Assembly_Content(W) * 2;
          end loop;
       
          declare
