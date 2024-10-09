@@ -207,7 +207,7 @@ procedure Simulator is
    task body Buffer is
       --  number 8 is temporary, should be calculated based on products needs
       --  we need to find the sweet spot for the storage capacity and the safe thresholds
-      Storage_Capacity : constant Integer := 50;
+      Storage_Capacity : constant Integer := 30;
       type Stat is (Hit, Miss);
       type Storage_type is array (Pracownicy) of Integer;
       Storage              : Storage_type := (0, 0, 0, 0, 0);
