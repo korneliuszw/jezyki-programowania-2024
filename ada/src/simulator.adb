@@ -106,7 +106,6 @@ procedure Simulator is
             if not Can_Safely_Accept then
                --  delay production
                Random_Time := Random_Time * 3;
-               --  Put_Line(ESC & "[93m" & "P: Demand for " & Nazwy_Skladnikow(Producer_Type_Number) & " is low delaying production" & ESC & "[0m");
                Put_Line(ESC & "[93m" & "P: Demand for " & To_String(Nazwy_Skladnikow(Producer_Type_Number)) & " is low delaying production" & ESC & "[0m");
             end if;
          end;
