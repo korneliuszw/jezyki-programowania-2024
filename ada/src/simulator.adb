@@ -2,10 +2,9 @@
 
 with Ada.Text_IO;            use Ada.Text_IO;
 with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
+with Ada.Strings.Unbounded;  use Ada.Strings.Unbounded;
 with Ada.Integer_Text_IO;
 with Ada.Numerics.Discrete_Random;
-with Ada.Strings.Unbounded;
-use Ada.Strings.Unbounded;
 
 procedure Simulator is
 
@@ -16,7 +15,7 @@ procedure Simulator is
    Liczba_Klientow  : constant Integer := 2;
 
    -- Reduce the factor for faster simulation, increase for slower
-   Delay_Factor: constant Duration := 0.2;
+   Delay_Factor: constant Duration := 0.05;
 
    subtype Pracownicy is Integer range 1 .. Liczba_Pracownikow;
    subtype Zestawy is Integer range 1 .. Liczba_Zestawow;
@@ -62,6 +61,8 @@ procedure Simulator is
       entry Cleaning_Day;
       -- Print hit/miss stats of Take and Deliver to a file
       entry Print_Stats;
+      -- Check if we can safely accept more products
+      entry Check_Buffer_Threshold(Product: in Pracownicy; Can_Accept: out Boolean);
    end Buffer;
 
    P : array (1 .. Liczba_Pracownikow) of Pracownik;
@@ -95,13 +96,26 @@ procedure Simulator is
         (ESC & "[93m" & "P: Started producer of " &
          To_String(Nazwy_Skladnikow (Producer_Type_Number)) & ESC & "[0m");
       loop
-         Random_Time := Duration (Random_Production.Random (G) * Delay_Factor);
-         delay Random_Time;
+         --  introducing local scope
+         declare
+            Can_Safely_Accept: Boolean;
+         begin
+            B.Check_Buffer_Threshold(Producer_Type_Number, Can_Safely_Accept);
+            Random_Time := Duration(Random_Production.Random(G));
+            if not Can_Safely_Accept then
+               --  delay production
+               Random_Time := Random_Time * 2;
+               Put_Line(ESC & "[93m" & "P: Demand for " & To_String(Nazwy_Skladnikow(Producer_Type_Number)) & " is low delaying production" & ESC & "[0m");
+            end if;
+         end;
+         --  end of local scope
+         delay Random_Time * Delay_Factor;
          Put_Line
            (ESC & "[93m" & "P: Produced product " &
             To_String(Nazwy_Skladnikow (Producer_Type_Number)) & " number " &
             Integer'Image (Product_Number) & ESC & "[0m");
-        loop
+         -- Accept for storage
+         loop
             select
                B.Take(Producer_Type_Number, Product_Number);
                Product_Number := Product_Number + 1;
@@ -164,34 +178,35 @@ procedure Simulator is
    end Klient;
 
    -- Cleaning
-    task body Cleaning is
-        Cleaning_Day: Integer;
-        Day_Number: Integer := 1;
-        Day_Duration: constant Duration := 2.0 * Delay_Factor;
-    begin
-        -- set on which day the cleaning will be
-        accept Start(Cleaning_Day_When: in Integer) do
-            Cleaning_Day := Cleaning_Day_When;
-        end Start;
-        loop
+   task body Cleaning is
+       Cleaning_Day: Integer;
+       Day_Number: Integer := 1;
+       Day_Duration: constant Duration := 2.0;
+   begin
+      -- set on which day the cleaning will be
+       accept Start(Cleaning_Day_When: in Integer) do
+           Cleaning_Day := Cleaning_Day_When;
+           Put_Line(ESC & "[92m" & "Cleaning countdown started" & ESC & "[0m");
+       end Start;
+       loop
             -- wait for day to end
-            delay Day_Duration;
-            Put_Line (ESC & "[92m" & "Day " & Integer'Image(Day_Number) & ESC & "[0m");
-            if Day_Number = Cleaning_Day then
-                -- Time to clean
-                Put_Line (ESC & "[92m" & "Cleaning day" & ESC & "[0m");
-                Day_Number := 1;
-                B.Cleaning_Day;
-            else
-                Day_Number := Day_Number + 1;
+            delay Day_Duration * Delay_Factor;
+            Put_Line (ESC & "[92m" & "Day" & Integer'Image(Day_Number) & ESC & "[0m");
+            if Day_Number mod Cleaning_Day = 0 then
+               -- Time to clean
+               Put_Line (ESC & "[92m" & "Cleaning day" & ESC & "[0m");
+               B.Cleaning_Day;
             end if;
-        end loop;
-    end Cleaning;
+            Day_Number := Day_Number + 1;
+       end loop;
+   end Cleaning;
 
 
    --Buffer--
 
    task body Buffer is
+      --  number 8 is temporary, should be calculated based on products needs
+      --  we need to find the sweet spot for the storage capacity and the safe thresholds
       Storage_Capacity : constant Integer := 30;
       type Stat is (Hit, Miss);
       type Storage_type is array (Pracownicy) of Integer;
@@ -201,6 +216,8 @@ procedure Simulator is
       Max_Assembly_Content : array (Pracownicy) of Integer;
       Assembly_Number      : array (Zestawy) of Integer := (1, 1, 1);
       In_Storage           : Integer := 0;
+
+      Thresholds : array (Pracownicy) of Integer;
 
       -- Stats store counters for hits (successful Take/Deliver) and misses (rejected Take/Deliver)
       type Stat_Counter is delta 0.01 digits 20;
@@ -212,7 +229,7 @@ procedure Simulator is
       
       -- Priority is calculated as the difference between the maximum assembly content and the current storage
       -- We care less about products that can be already assembled
-      Priority: array(Pracownicy) of Integer := (3, 3, 3, 3, 3);
+      Priority: array(Pracownicy) of Integer := (others => 3);
       Lowest_Priority_Producer: Pracownicy;
 
      -- Recalculate priority for all producers, find the one with the lowest priority
@@ -229,6 +246,9 @@ procedure Simulator is
       end RecalculatePriority;
 
       procedure Setup_Variables is
+         Total_Expected_Demand: Integer := 0;
+         Multiplier: Float;
+         Theoretically_Perfect_Buffer_Size: Integer;
       begin
          for W in Pracownicy loop
             Max_Assembly_Content (W) := 0;
@@ -238,6 +258,32 @@ procedure Simulator is
                end if;
             end loop;
          end loop;
+      
+         declare
+            Expected_Demand: array(Pracownicy) of Integer;
+         begin
+            for W in Pracownicy loop
+               Expected_Demand(W) := 0;
+               for Z in Zestawy loop
+                  Expected_Demand(W) := Expected_Demand(W) + Zawartosc_Zestawow(Z, W);
+               end loop;
+               Total_Expected_Demand := Total_Expected_Demand + Expected_Demand(W);
+            end loop;
+      
+            --  Determine the theoretically perfect buffer size
+            Theoretically_Perfect_Buffer_Size := ((Integer(Float(Total_Expected_Demand) * 2.0) + 9) / 10) * 10;
+            if Storage_Capacity < Theoretically_Perfect_Buffer_Size then
+               Put_Line(ESC & "[91m" & "|   " & "Warning: Buffer size" & Integer'Image(Storage_Capacity) & " is not optimal, should be" & Integer'Image(Theoretically_Perfect_Buffer_Size) & ESC & "[0m");
+            end if;
+
+            -- Set the thresholds based on the multiplier
+            Multiplier := (Float(Storage_Capacity) / Float(Total_Expected_Demand)) * 1.5;
+            for W in Pracownicy loop
+               Thresholds(W) := Integer(Float(Expected_Demand(W)) * Multiplier);
+               Put_Line(ESC & "[91m" & "|   " & "Threshold for Pracownik" & Integer'Image(W) & ": " & Integer'Image(Thresholds(W)) & ESC & "[0m");
+            end loop;
+
+         end;
       end Setup_Variables;
 
       procedure Today_Is_Cleaning_Day is
@@ -285,6 +331,14 @@ procedure Simulator is
        return In_Storage < Storage_Capacity;
       end Can_Accept;
 
+      function Can_Safely_Accept(Product: Pracownicy) return Boolean is
+      begin
+         if Storage(Product) < Thresholds(Product) then
+            return True;
+         else
+            return False;
+         end if;
+      end Can_Safely_Accept;
 
       function Can_Deliver (Assembly : Zestawy) return Boolean is
       begin
@@ -376,6 +430,10 @@ procedure Simulator is
                 Put_Line (Stat_File, "Ratio: " & Stat_Counter'Image(Assembly_Stats(Hit) / (Assembly_Stats(Hit) + Assembly_Stats(Miss))));
                 Close(Stat_File);
             end Print_Stats;
+         or
+            accept Check_Buffer_Threshold(Product: in Pracownicy; Can_Accept: out Boolean) do
+               Can_Accept := Can_Safely_Accept(Product);
+            end Check_Buffer_Threshold;
         end select;
       end loop;
    end Buffer;
