@@ -48,8 +48,8 @@ procedure Simulator is
         entry Start(Cleaning_Day_When: in Integer);
     end Cleaning;
 
-   -- Buffer receives dishes from cooks and delivers meals to Customers
-   task type Buffer is
+   -- Kitchen receives dishes from cooks and delivers meals to Customers
+   task type Kitchen is
       -- Accept a dish to the storage (provided there is a room for it)
       entry Take (Dish : in Cooks; Number : in Integer);
       -- Deliver a meal (provided there are enough products for it)
@@ -59,12 +59,12 @@ procedure Simulator is
       -- Print hit/miss stats of Take and Deliver to a file
       entry Print_Stats;
       -- Check if we can safely accept more products
-      entry Check_Buffer_Threshold(Dish: in Cooks; Can_Accept: out Boolean);
-   end Buffer;
+      entry Check_Kitchen_Threshold(Dish: in Cooks; Can_Accept: out Boolean);
+   end Kitchen;
 
    P : array (1 .. Cook_Count) of Cook;
    K : array (1 .. Customer_Count) of Customer;
-   B : Buffer;
+   B : Kitchen;
 
    ----TASK DEFINITIONS----
 
@@ -94,7 +94,7 @@ procedure Simulator is
          declare
             Can_Safely_Accept: Boolean;
          begin
-            B.Check_Buffer_Threshold(Cook_Type_Number, Can_Safely_Accept);
+            B.Check_Kitchen_Threshold(Cook_Type_Number, Can_Safely_Accept);
             Random_Time := Duration(Random_Cooking.Random(G));
             if not Can_Safely_Accept then
                --  delay production
@@ -115,7 +115,7 @@ procedure Simulator is
                Dish_Number := Dish_Number + 1;
                exit;
             else
-               Put_Line("Other dish is being loaded to buffer. PLZ WAIT");
+               Put_Line("Other dish is being loaded onto kitchen. PLZ WAIT");
                delay 0.5 * Delay_Factor;
             end select;
          end loop;
@@ -129,7 +129,7 @@ procedure Simulator is
       package Random_Consumption is new Ada.Numerics.Discrete_Random
         (Consumption_Time_Range);
 
-      --each Consumer takes any (random) Meal from the Buffer
+      --each Consumer takes any (random) Meal from the Kitchen
       package Random_Meal is new Ada.Numerics.Discrete_Random
         (Meals);
 
@@ -196,18 +196,18 @@ procedure Simulator is
    end Cleaning;
 
 
-   --Buffer--
+   --Kitchen--
 
-   task body Buffer is
-      Storage_Capacity : constant Integer := 30;
+   task body Kitchen is
+      Kitchen_Counter_Capacity : constant Integer := 30;
       type Stat is (Hit, Miss);
-      type Storage_type is array (Cooks) of Integer;
-      Storage              : Storage_type := (0, 0, 0, 0, 0);
+      type Kitchen_Counter_type is array (Cooks) of Integer;
+      Kitchen_Counter              : Kitchen_Counter_type := (0, 0, 0, 0, 0);
       Meal_Content     : array (Meals, Cooks) of Integer :=
             ((3, 2, 2, 0, 0), (0, 1, 0, 3, 1), (1, 3, 3, 0, 4));
       Max_Meal_Content : array (Cooks) of Integer;
       Meal_Number      : array (Meals) of Integer := (1, 1, 1);
-      In_Storage           : Integer := 0;
+      In_Kitchen_Counter           : Integer := 0;
 
       -- Stop accepting products when they reach the threshold of the expected demand
       Thresholds : array (Cooks) of Integer;
@@ -230,7 +230,7 @@ procedure Simulator is
         Lowest_Priority: Integer := 999999;
       begin
         for P in Cooks loop
-            Priority(P) := Max_Meal_Content(P) - Storage(P);
+            Priority(P) := Max_Meal_Content(P) - Kitchen_Counter(P);
             if Priority(P) < Lowest_Priority then
                 Lowest_Priority := Priority(P);
                 Lowest_Priority_Cook := P;
@@ -241,7 +241,7 @@ procedure Simulator is
       procedure Setup_Variables is
          Total_Expected_Demand: Integer := 0;
          Multiplier: Float;
-         Theoretically_Optimal_Buffer_Size: Integer;
+         Theoretically_Optimal_Kitchen_Size: Integer;
       begin
          for W in Cooks loop
             Max_Meal_Content (W) := 0;
@@ -263,14 +263,14 @@ procedure Simulator is
                Total_Expected_Demand := Total_Expected_Demand + Expected_Demand(W);
             end loop;
       
-            --  Determine the theoretically perfect buffer size
-            Theoretically_Optimal_Buffer_Size := ((Integer(Float(Total_Expected_Demand) * 2.0) + 9) / 10) * 10;
-            if Storage_Capacity < Theoretically_Optimal_Buffer_Size then
-               Put_Line(ESC & "[91m" & "|   " & "Warning: Buffer size" & Integer'Image(Storage_Capacity) & " is not optimal, should be" & Integer'Image(Theoretically_Optimal_Buffer_Size) & ESC & "[0m");
+            --  Determine the theoretically perfect kitchen  size
+            Theoretically_Optimal_Kitchen_Size := ((Integer(Float(Total_Expected_Demand) * 2.0) + 9) / 10) * 10;
+            if Kitchen_Counter_Capacity < Theoretically_Optimal_Kitchen_Size then
+               Put_Line(ESC & "[91m" & "|   " & "Warning: Kitchen size" & Integer'Image(Kitchen_Counter_Capacity) & " is not optimal, should be" & Integer'Image(Theoretically_Optimal_Kitchen_Size) & ESC & "[0m");
             end if;
 
             -- Set the thresholds based on the multiplier
-            Multiplier := (Float(Storage_Capacity) / Float(Total_Expected_Demand)) * 1.5;
+            Multiplier := (Float(Kitchen_Counter_Capacity) / Float(Total_Expected_Demand)) * 1.5;
             for W in Cooks loop
                Thresholds(W) := Integer(Float(Expected_Demand(W)) * Multiplier);
                Put_Line(ESC & "[91m" & "|   " & "Threshold for Cook" & Integer'Image(W) & ": " & Integer'Image(Thresholds(W)) & ESC & "[0m");
@@ -284,50 +284,50 @@ procedure Simulator is
         Cleaning_Day_Takes: constant Integer := 3;
       begin
         for P in Cooks loop
-            if Storage(P) >= Cleaning_Day_Takes then
+            if Kitchen_Counter(P) >= Cleaning_Day_Takes then
                 Put_Line ( ESC & "[92m" & "Cleaning storage for product " & Integer'Image(P) & ESC & "[0m");
-                Storage(P) := Storage(P) - Cleaning_Day_Takes;
-                In_Storage := In_Storage - Cleaning_Day_Takes;
+                Kitchen_Counter(P) := Kitchen_Counter(P) - Cleaning_Day_Takes;
+                In_Kitchen_Counter := In_Kitchen_Counter - Cleaning_Day_Takes;
             end if;
         end loop;
       end;
 
-      function Find_Max_In_Storage return Cooks is
+      function Find_Max_In_Kitchen_Counter return Cooks is
       begin
         return Lowest_Priority_Cook;
-      end Find_Max_In_Storage;
+      end Find_Max_In_Kitchen_Counter;
       
       procedure RemoveItem(Cook: Cooks) is
       begin
-        if Storage(Cook) = 0 then
+        if Kitchen_Counter(Cook) = 0 then
             return;
         end if;
-        Storage(Cook) := Storage(Cook) - 1;
-        In_Storage := In_Storage - 1;
+        Kitchen_Counter(Cook) := Kitchen_Counter(Cook) - 1;
+        In_Kitchen_Counter := In_Kitchen_Counter - 1;
       end;
 
       -- Check if we should cleanup redundant the storage
       function ShouldCleanup return Boolean is
         begin
-            return In_Storage >= Storage_Capacity;
+            return In_Kitchen_Counter >= Kitchen_Counter_Capacity;
         end;
 
       -- Remove the product with the lowest priority
-      function CleanupRedundantStorage(Cook: Cooks) return Cooks is
+      function CleanupRedundantKitchen_Counter(Cook: Cooks) return Cooks is
       begin
-        RemoveItem(Find_Max_In_Storage);
+        RemoveItem(Find_Max_In_Kitchen_Counter);
         RecalculatePriority;
-        return Find_Max_In_Storage;
+        return Find_Max_In_Kitchen_Counter;
       end;
 
       function Can_Accept (Dish : Cooks) return Boolean is
       begin
-       return In_Storage < Storage_Capacity;
+       return In_Kitchen_Counter < Kitchen_Counter_Capacity;
       end Can_Accept;
 
       function Can_Safely_Accept(Dish: Cooks) return Boolean is
       begin
-         if Storage(Dish) < Thresholds(Dish) then
+         if Kitchen_Counter(Dish) < Thresholds(Dish) then
             return True;
          else
             return False;
@@ -337,41 +337,41 @@ procedure Simulator is
       function Can_Deliver (Meal : Meals) return Boolean is
       begin
          for W in Cooks loop
-            if Storage (W) < Meal_Content (Meal, W) then
+            if Kitchen_Counter (W) < Meal_Content (Meal, W) then
                return False;
             end if;
          end loop;
          return True;
       end Can_Deliver;
 
-      procedure Storage_Contents is
+      procedure Kitchen_Counter_Contents is
       begin
          for W in Cooks loop
             Put_Line
-              ("|   Storage contents: " & Integer'Image (Storage (W)) & " " &
+              ("|   Kitchen_Counter contents: " & Integer'Image (Kitchen_Counter (W)) & " " &
                To_String(Dish_Names (W)));
          end loop;
          Put_Line
            ("|   Number of products in storage: " &
-            Integer'Image (In_Storage));
-      end Storage_Contents;
+            Integer'Image (In_Kitchen_Counter));
+      end Kitchen_Counter_Contents;
 
    begin
       Create (Stat_File, Ada.Text_IO.Out_File, "stats.txt");
       Close(Stat_File);
-      Put_Line (ESC & "[91m" & "B: Buffer started" & ESC & "[0m");
+      Put_Line (ESC & "[91m" & "B: Kitchen started" & ESC & "[0m");
       Setup_Variables;
       loop
       select
          accept Take (Dish : in Cooks; Number : in Integer) do
             -- check if there is a room for the dish, if there is no room, remove redundant product, don't go inside if we just removed the current dish to avoid filling it up again
-            if not (ShouldCleanup and then CleanupRedundantStorage(Dish) = Dish) and Can_Accept (Dish) then
+            if not (ShouldCleanup and then CleanupRedundantKitchen_Counter(Dish) = Dish) and Can_Accept (Dish) then
                Put_Line
                  (ESC & "[91m" & "B: Accepted dish " &
                   To_String(Dish_Names (Dish)) & " number " &
                   Integer'Image (Number) & ESC & "[0m");
-               Storage (Dish) := Storage (Dish) + 1;
-               In_Storage        := In_Storage + 1;
+               Kitchen_Counter (Dish) := Kitchen_Counter (Dish) + 1;
+               In_Kitchen_Counter        := In_Kitchen_Counter + 1;
                Dish_Stats(Hit) := Dish_Stats(Hit) + 1.0;
                RecalculatePriority;
             else
@@ -382,7 +382,7 @@ procedure Simulator is
                 Dish_Stats(Miss) := Dish_Stats(Miss) + 1.0;
             end if;
          end Take;
-         Storage_Contents;
+         Kitchen_Counter_Contents;
         or
          accept Deliver (Meal : in Meals; Number : out Integer) do
 
@@ -392,8 +392,8 @@ procedure Simulator is
                   To_String(Meal_Names (Meal)) & " number " &
                   Integer'Image (Meal_Number (Meal)) & ESC & "[0m");
                for W in Cooks loop
-                  Storage (W) := Storage (W) - Meal_Content (Meal, W);
-                  In_Storage  := In_Storage - Meal_Content (Meal, W);
+                  Kitchen_Counter (W) := Kitchen_Counter (W) - Meal_Content (Meal, W);
+                  In_Kitchen_Counter  := In_Kitchen_Counter - Meal_Content (Meal, W);
                end loop;
                Number                     := Meal_Number (Meal);
                Meal_Number (Meal) := Meal_Number (Meal) + 1;
@@ -406,12 +406,12 @@ procedure Simulator is
                 Meal_Stats(Miss) := Meal_Stats(Miss) + 1.0;
             end if;
          end Deliver;
-         Storage_Contents;
+         Kitchen_Counter_Contents;
         or
             accept Cleaning_Day do
                 Today_Is_Cleaning_Day;
             end Cleaning_Day;
-            Storage_Contents;
+            Kitchen_Counter_Contents;
         or
             accept Print_Stats do
                 Open(Stat_File, Ada.Text_IO.Append_File, "stats.txt");
@@ -426,12 +426,12 @@ procedure Simulator is
                 Close(Stat_File);
             end Print_Stats;
          or
-            accept Check_Buffer_Threshold(Dish: in Cooks; Can_Accept: out Boolean) do
+            accept Check_Kitchen_Threshold(Dish: in Cooks; Can_Accept: out Boolean) do
                Can_Accept := Can_Safely_Accept(Dish);
-            end Check_Buffer_Threshold;
+            end Check_Kitchen_Threshold;
         end select;
       end loop;
-   end Buffer;
+   end Kitchen;
 
    ---"MAIN" FOR SIMULATION---
 begin
