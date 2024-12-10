@@ -79,7 +79,7 @@ isDividerNotOk x b p = x `mod` p == 0 && p > b
 
 hasPrimeDividersLessThan :: Integral t => [t] -> t -> t -> Bool
 hasPrimeDividersLessThan ps x b
-  = foldr (\ p -> (&&) (not (x `mod` p == 0 && p > b))) True ps
+  = customFoldr (\ p -> (&&) (not (x `mod` p == 0 && p > b))) True ps
 
 solve38 :: IO Int
 solve38 = do
